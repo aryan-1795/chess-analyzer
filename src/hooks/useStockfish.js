@@ -1,5 +1,11 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 
+/**
+ * Enhanced Stockfish hook that extracts:
+ * - Evaluation (centipawns or mate)
+ * - Best move
+ * - Principal variation
+ */
 export function useStockfish() {
   const [isReady, setIsReady] = useState(false)
   const workerRef = useRef(null)
@@ -29,7 +35,7 @@ export function useStockfish() {
     const setupWorker = () => {
       if (!workerRef.current) return
 
-      const pendingEvaluations = new Map() // Store latest evaluation per FEN
+      const pendingAnalysis = new Map() // Store analysis data per FEN
 
       workerRef.current.onmessage = (event) => {
         let message = event.data
@@ -38,27 +44,45 @@ export function useStockfish() {
         if (typeof message === 'object' && message !== null) {
           // Stockfish.js object format
           if (message.type === 'bestmove') {
-            // Analysis complete - use the latest evaluation
             const fen = currentFenRef.current
-            if (fen && pendingEvaluations.has(fen)) {
+            if (fen && pendingAnalysis.has(fen)) {
+              const analysis = pendingAnalysis.get(fen)
               const callback = callbacksRef.current.get(fen)
               if (callback) {
-                callback(pendingEvaluations.get(fen))
-                pendingEvaluations.delete(fen)
+                callback({
+                  evaluation: analysis.evaluation,
+                  bestMove: message.bestmove || null,
+                  principalVariation: analysis.principalVariation || []
+                })
+                pendingAnalysis.delete(fen)
                 callbacksRef.current.delete(fen)
               }
             }
           } else if (message.type === 'info' && message.evaluation) {
-            // Extract evaluation from object
             const fen = currentFenRef.current
             if (fen) {
-              let evaluation = 0
+              let evaluation = { type: 'cp', value: 0 }
               if (message.evaluation.type === 'mate') {
-                evaluation = message.evaluation.value > 0 ? 10 : -10
+                evaluation = { 
+                  type: 'mate', 
+                  value: message.evaluation.value,
+                  // Convert mate to a large centipawn value for comparison
+                  centipawns: message.evaluation.value > 0 ? 10000 : -10000
+                }
               } else if (message.evaluation.type === 'cp') {
-                evaluation = message.evaluation.value / 100
+                evaluation = { 
+                  type: 'cp', 
+                  value: message.evaluation.value,
+                  centipawns: message.evaluation.value
+                }
               }
-              pendingEvaluations.set(fen, evaluation)
+              
+              const analysis = pendingAnalysis.get(fen) || {}
+              analysis.evaluation = evaluation
+              if (message.pv) {
+                analysis.principalVariation = message.pv
+              }
+              pendingAnalysis.set(fen, analysis)
             }
           }
           return
@@ -73,38 +97,65 @@ export function useStockfish() {
           workerRef.current.postMessage('setoption name MultiPV value 1')
           workerRef.current.postMessage('setoption name Skill Level value 20')
         } else if (message.startsWith('bestmove')) {
-          // Analysis complete - use the latest evaluation
+          // Parse bestmove: "bestmove e2e4 ponder e7e5"
           const fen = currentFenRef.current
-          if (fen && pendingEvaluations.has(fen)) {
+          if (fen && pendingAnalysis.has(fen)) {
+            const analysis = pendingAnalysis.get(fen)
+            const bestMoveMatch = message.match(/bestmove (\S+)/)
+            const bestMove = bestMoveMatch ? bestMoveMatch[1] : null
+            
             const callback = callbacksRef.current.get(fen)
             if (callback) {
-              callback(pendingEvaluations.get(fen))
-              pendingEvaluations.delete(fen)
+              callback({
+                evaluation: analysis.evaluation,
+                bestMove: bestMove,
+                principalVariation: analysis.principalVariation || []
+              })
+              pendingAnalysis.delete(fen)
               callbacksRef.current.delete(fen)
             }
           }
         } else if (message.startsWith('info')) {
-          // Parse evaluation from info line
-          // Look for score cp (centipawns) or mate
+          // Parse info line for evaluation and principal variation
+          const fen = currentFenRef.current
+          if (!fen) return
+
+          let evaluation = null
+          let principalVariation = []
+
+          // Parse score (cp or mate)
           const cpMatch = message.match(/score cp (-?\d+)/)
           const mateMatch = message.match(/score mate (-?\d+)/)
           
-          if (cpMatch || mateMatch) {
-            let evaluation = 0
-            if (mateMatch) {
-              // Mate in N moves - use a large evaluation
-              const mateMoves = parseInt(mateMatch[1])
-              evaluation = mateMoves > 0 ? 10 : -10 // Simplified mate score
-            } else if (cpMatch) {
-              // Convert centipawns to evaluation (divide by 100)
-              evaluation = parseInt(cpMatch[1]) / 100
+          if (mateMatch) {
+            const mateMoves = parseInt(mateMatch[1])
+            evaluation = {
+              type: 'mate',
+              value: mateMoves,
+              centipawns: mateMoves > 0 ? 10000 : -10000
             }
-            
-            // Store the latest evaluation for this position
-            const fen = currentFenRef.current
-            if (fen) {
-              pendingEvaluations.set(fen, evaluation)
+          } else if (cpMatch) {
+            const cp = parseInt(cpMatch[1])
+            evaluation = {
+              type: 'cp',
+              value: cp,
+              centipawns: cp
             }
+          }
+
+          // Parse principal variation
+          const pvMatch = message.match(/pv (.+)/)
+          if (pvMatch) {
+            principalVariation = pvMatch[1].trim().split(/\s+/)
+          }
+
+          if (evaluation) {
+            const analysis = pendingAnalysis.get(fen) || {}
+            analysis.evaluation = evaluation
+            if (principalVariation.length > 0) {
+              analysis.principalVariation = principalVariation
+            }
+            pendingAnalysis.set(fen, analysis)
           }
         }
       }
@@ -123,10 +174,10 @@ export function useStockfish() {
     }
   }, [])
 
-  const analyzePosition = useCallback((fen, callback) => {
+  const analyzePosition = useCallback((fen, callback, depth = 15) => {
     if (!workerRef.current || !isReady) {
       console.warn('Stockfish not ready')
-      if (callback) callback(0)
+      if (callback) callback({ evaluation: { type: 'cp', value: 0, centipawns: 0 }, bestMove: null, principalVariation: [] })
       return
     }
 
@@ -136,15 +187,22 @@ export function useStockfish() {
 
     // Start analysis
     workerRef.current.postMessage(`position fen ${fen}`)
-    workerRef.current.postMessage('go depth 15')
+    workerRef.current.postMessage(`go depth ${depth}`)
     
     // Set timeout to ensure callback is called even if no response
     setTimeout(() => {
       if (callbacksRef.current.has(fen)) {
-        callback(0) // Default to 0 if no response
+        const callback = callbacksRef.current.get(fen)
+        if (callback) {
+          callback({ 
+            evaluation: { type: 'cp', value: 0, centipawns: 0 }, 
+            bestMove: null, 
+            principalVariation: [] 
+          })
+        }
         callbacksRef.current.delete(fen)
       }
-    }, 5000)
+    }, 10000) // Increased timeout for deeper analysis
   }, [isReady])
 
   return { analyzePosition, isReady }

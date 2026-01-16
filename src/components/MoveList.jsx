@@ -1,4 +1,4 @@
-function MoveList({ moves, currentMoveIndex, onMoveClick, getMoveClassification, getMoveColor }) {
+function MoveList({ moves, currentMoveIndex, onMoveClick, getMoveClassification, getMoveColor, reviewData }) {
   // Group moves into pairs (White, Black)
   const movePairs = []
   for (let i = 0; i < moves.length; i += 2) {
@@ -18,15 +18,32 @@ function MoveList({ moves, currentMoveIndex, onMoveClick, getMoveClassification,
       return 'bg-red-900/50 hover:bg-red-800/50 border-l-2 border-red-500'
     } else if (classification === 'Mistake') {
       return 'bg-orange-900/50 hover:bg-orange-800/50 border-l-2 border-orange-500'
+    } else if (classification === 'Inaccuracy') {
+      return 'bg-yellow-900/50 hover:bg-yellow-800/50 border-l-2 border-yellow-500'
+    } else if (classification === 'Best') {
+      return 'bg-green-900/50 hover:bg-green-800/50 border-l-2 border-green-500'
     }
     return 'bg-gray-700 hover:bg-gray-600'
   }
 
   const getMoveTitle = (moveIndex) => {
     const classification = getMoveClassification(moveIndex)
-    if (classification === 'Blunder') return 'Blunder'
-    if (classification === 'Mistake') return 'Mistake'
-    return null
+    if (!classification) return null
+    
+    // Get review data if available
+    if (reviewData && reviewData.moves && reviewData.moves[moveIndex]) {
+      const moveReview = reviewData.moves[moveIndex]
+      let title = classification
+      if (moveReview.bestMove && classification !== 'Best') {
+        title += ` | Best: ${moveReview.bestMove}`
+      }
+      if (moveReview.comment) {
+        title += ` | ${moveReview.comment}`
+      }
+      return title
+    }
+    
+    return classification
   }
 
   return (
@@ -56,11 +73,15 @@ function MoveList({ moves, currentMoveIndex, onMoveClick, getMoveClassification,
         ))}
       </div>
       <div className="mt-2 text-xs text-gray-400">
-        <div className="flex items-center gap-2">
-          <span className="w-3 h-3 bg-red-900/50 border-l-2 border-red-500"></span>
-          <span>Blunder</span>
-          <span className="w-3 h-3 bg-orange-900/50 border-l-2 border-orange-500 ml-4"></span>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="w-3 h-3 bg-green-900/50 border-l-2 border-green-500"></span>
+          <span>Best</span>
+          <span className="w-3 h-3 bg-yellow-900/50 border-l-2 border-yellow-500 ml-2"></span>
+          <span>Inaccuracy</span>
+          <span className="w-3 h-3 bg-orange-900/50 border-l-2 border-orange-500 ml-2"></span>
           <span>Mistake</span>
+          <span className="w-3 h-3 bg-red-900/50 border-l-2 border-red-500 ml-2"></span>
+          <span>Blunder</span>
         </div>
       </div>
     </div>

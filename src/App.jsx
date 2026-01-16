@@ -2,9 +2,11 @@ import { useState, useEffect } from 'react'
 import { Chess } from 'chess.js'
 import { Chessboard } from 'react-chessboard'
 import { useStockfish } from './hooks/useStockfish'
+import { useGameReview } from './hooks/useGameReview'
 import GameInfo from './components/GameInfo'
 import MoveList from './components/MoveList'
 import EvaluationBar from './components/EvaluationBar'
+import ReviewSummary from './components/ReviewSummary'
 
 function App() {
   const [username, setUsername] = useState('')
@@ -17,6 +19,7 @@ function App() {
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [evaluations, setEvaluations] = useState({}) // Store evaluations for each position
   const { analyzePosition, isReady } = useStockfish()
+  const { reviewData, isAnalyzing: isReviewAnalyzing, analysisProgress, generateReview, clearReview } = useGameReview(moveHistory)
 
   // Fetch games from Chess.com API
   const fetchGames = async (username) => {
@@ -85,6 +88,7 @@ function App() {
       setSelectedGame(gameData)
       setEvaluation(0)
       setEvaluations({})
+      clearReview() // Clear previous review when loading new game
     } catch (error) {
       console.error('Error loading game:', error)
       alert('Error loading game PGN')
@@ -133,9 +137,11 @@ function App() {
       }
 
       setIsAnalyzing(true)
-      analyzePosition(fen, (evaluation) => {
-        setEvaluation(evaluation)
-        setEvaluations(prev => ({ ...prev, [fen]: evaluation }))
+      analyzePosition(fen, (result) => {
+        // Handle new format with evaluation object
+        const evalValue = result.evaluation?.centipawns ? result.evaluation.centipawns / 100 : (typeof result === 'number' ? result : 0)
+        setEvaluation(evalValue)
+        setEvaluations(prev => ({ ...prev, [fen]: evalValue }))
         setIsAnalyzing(false)
       })
     }
@@ -144,11 +150,15 @@ function App() {
   const getMoveClassification = (moveIndex) => {
     if (moveIndex < 0 || moveIndex >= moveHistory.length) return null
     
-    // Get evaluation before and after the move
+    // Use review data if available (more accurate)
+    if (reviewData && reviewData.moves && reviewData.moves[moveIndex]) {
+      return reviewData.moves[moveIndex].classification
+    }
+    
+    // Fallback to old method if review not available
     const beforeIndex = moveIndex - 1
     const afterIndex = moveIndex
     
-    // Get FEN positions
     const chessBefore = new Chess()
     if (beforeIndex >= 0) {
       for (let i = 0; i <= beforeIndex; i++) {
@@ -171,19 +181,22 @@ function App() {
       return 'Good' // Default if not analyzed yet
     }
     
-    // Adjust for color - if it's black's move, flip the evaluation
     const move = moveHistory[moveIndex]
     const beforeEval = move.color === 'w' ? evalBefore : -evalBefore
     const afterEval = move.color === 'w' ? evalAfter : -evalAfter
     
     const evalDrop = beforeEval - afterEval
     
-    if (evalDrop > 2.0) {
+    if (evalDrop > 3.0) {
       return 'Blunder'
-    } else if (evalDrop > 1.0) {
+    } else if (evalDrop > 1.5) {
       return 'Mistake'
-    } else {
+    } else if (evalDrop > 0.7) {
+      return 'Inaccuracy'
+    } else if (evalDrop > 0.2) {
       return 'Good'
+    } else {
+      return 'Best'
     }
   }
 
@@ -277,6 +290,24 @@ function App() {
                 {/* Game Metadata */}
                 <GameInfo game={selectedGame} />
 
+                {/* Review Button */}
+                <div className="border-b border-gray-700 pb-4">
+                  <button
+                    onClick={generateReview}
+                    disabled={isReviewAnalyzing || moveHistory.length === 0}
+                    className="w-full px-4 py-2 bg-green-600 hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg font-semibold transition-colors"
+                  >
+                    {isReviewAnalyzing ? `Analyzing... ${analysisProgress}%` : 'Analyze Game'}
+                  </button>
+                </div>
+
+                {/* Review Summary */}
+                <ReviewSummary 
+                  summary={reviewData?.summary} 
+                  isAnalyzing={isReviewAnalyzing}
+                  analysisProgress={analysisProgress}
+                />
+
                 {/* Move List */}
                 <MoveList
                   moves={moveHistory}
@@ -284,6 +315,7 @@ function App() {
                   onMoveClick={goToMove}
                   getMoveClassification={getMoveClassification}
                   getMoveColor={getMoveColor}
+                  reviewData={reviewData}
                 />
 
                 {/* Navigation */}
