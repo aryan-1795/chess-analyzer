@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useStockfish } from './useStockfish'
 import { classifyMove, calculateEvalLoss, generateMoveExplanation } from '../utils/moveClassification'
+import { calculateMaterialLoss } from '../utils/materialCalculation'
 import { generateGameSummary } from '../utils/accuracyCalculation'
 
 /**
@@ -76,43 +77,50 @@ export function useGameReview(moveHistory) {
         const evalBefore = analysisBefore?.evaluation || { type: 'cp', value: 0, centipawns: 0 }
         const evalAfter = analysisAfter?.evaluation || { type: 'cp', value: 0, centipawns: 0 }
 
-        // Normalize evaluation structure
-        if (!evalBefore.centipawns) {
-          if (evalBefore.type === 'mate') {
-            evalBefore.centipawns = evalBefore.value > 0 ? 10000 : -10000
-          } else {
-            evalBefore.centipawns = evalBefore.value || 0
-          }
+        // Normalize evaluation structure (but keep mate as mate, don't convert)
+        if (!evalBefore.centipawns && evalBefore.type !== 'mate') {
+          evalBefore.centipawns = evalBefore.value || 0
         }
-        if (!evalAfter.centipawns) {
-          if (evalAfter.type === 'mate') {
-            evalAfter.centipawns = evalAfter.value > 0 ? 10000 : -10000
-          } else {
-            evalAfter.centipawns = evalAfter.value || 0
-          }
+        if (!evalAfter.centipawns && evalAfter.type !== 'mate') {
+          evalAfter.centipawns = evalAfter.value || 0
         }
 
-        // Calculate evaluation loss
-        const { evalLoss, isMate } = calculateEvalLoss(
+        // Calculate material loss
+        const materialLoss = calculateMaterialLoss(chessBefore, chessAfter, move.color)
+
+        // Calculate evaluation loss (SIDE-AWARE, handles mate separately)
+        const { evalLoss, isMate, lostMate } = calculateEvalLoss(
           evalBefore,
           evalAfter,
           move.color
         )
 
         // Classify the move
-        const classification = classifyMove(evalLoss, isMate)
+        const classification = classifyMove(evalLoss, isMate, lostMate)
 
         // Get best move (from position before)
         const bestMove = analysisBefore?.bestMove || null
 
-        // Generate explanation if not best move
+        // Generate explanation with material information
         const comment = classification === 'Best' 
           ? 'This is the best move according to the engine.'
-          : generateMoveExplanation(move, bestMove, evalLoss, classification)
+          : generateMoveExplanation(move, bestMove, evalLoss, classification, materialLoss)
 
         // Convert evaluation to pawns for display
-        const evalBeforePawns = evalBefore.centipawns / 100
-        const evalAfterPawns = evalAfter.centipawns / 100
+        let evalBeforePawns = 0
+        let evalAfterPawns = 0
+        
+        if (evalBefore.type === 'mate') {
+          evalBeforePawns = evalBefore.value > 0 ? 10 : -10 // Display mate as ±10 for UI
+        } else {
+          evalBeforePawns = evalBefore.centipawns / 100
+        }
+        
+        if (evalAfter.type === 'mate') {
+          evalAfterPawns = evalAfter.value > 0 ? 10 : -10
+        } else {
+          evalAfterPawns = evalAfter.centipawns / 100
+        }
 
         reviewMoves.push({
           move: move.move,
@@ -121,6 +129,9 @@ export function useGameReview(moveHistory) {
           evalBefore: evalBeforePawns,
           evalAfter: evalAfterPawns,
           evalLoss,
+          isMate,
+          lostMate,
+          materialLoss,
           bestMove,
           classification,
           comment,

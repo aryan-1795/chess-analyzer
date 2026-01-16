@@ -5,6 +5,7 @@
 
 /**
  * Calculate accuracy for a player based on their moves
+ * Uses SIDE-AWARE eval_loss and caps extreme values
  * @param {Array} moves - Array of move review data
  * @param {string} color - 'w' or 'b'
  * @returns {number} - Accuracy percentage (0-100)
@@ -16,13 +17,25 @@ export function calculateAccuracy(moves, color) {
     return 100 // Default to perfect if no moves
   }
 
-  // Calculate average evaluation loss
+  // Calculate average evaluation loss (SIDE-AWARE)
+  // Exclude mate moves that lost mate, or cap them
   let totalLoss = 0
   let moveCount = 0
 
   playerMoves.forEach(move => {
     if (move.evalLoss !== undefined && move.evalLoss !== null) {
-      totalLoss += move.evalLoss
+      let loss = move.evalLoss
+      
+      // Cap extreme eval_loss values to prevent distortion
+      // If a move lost mate, use a fixed high penalty but cap it
+      if (move.lostMate) {
+        loss = Math.min(loss, 5.0) // Cap mate loss at 5.0
+      } else {
+        // Cap regular eval_loss at 5.0 as well
+        loss = Math.min(loss, 5.0)
+      }
+      
+      totalLoss += loss
       moveCount++
     }
   })
@@ -34,10 +47,12 @@ export function calculateAccuracy(moves, color) {
   const averageLoss = totalLoss / moveCount
 
   // Convert average loss to accuracy percentage
+  // Improved formula that better matches chess.com behavior
   // Lower loss = higher accuracy
-  // Formula: accuracy = max(0, 100 - (averageLoss * 20))
-  // This maps: 0 loss = 100%, 5 pawns loss = 0%
-  const accuracy = Math.max(0, Math.min(100, 100 - (averageLoss * 20)))
+  // Formula: accuracy = max(0, 100 - (averageLoss * 25))
+  // This maps: 0 loss = 100%, 4 pawns average loss = 0%
+  // More aggressive than before to match chess.com
+  const accuracy = Math.max(0, Math.min(100, 100 - (averageLoss * 25)))
 
   return Math.round(accuracy)
 }
