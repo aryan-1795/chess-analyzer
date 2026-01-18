@@ -8,9 +8,10 @@
  * @param {number} evalLoss - The evaluation loss (in pawns) - already side-aware
  * @param {boolean} isMate - Whether the evaluation involves mate
  * @param {boolean} lostMate - Whether mate was lost
- * @returns {string} - Classification: 'Best', 'Good', 'Inaccuracy', 'Mistake', 'Blunder'
+ * @param {number} materialLoss - Material lost (positive = lost, negative = gained)
+ * @returns {string} - Classification: 'Brilliant', 'Great', 'Best', 'Good', 'Inaccuracy', 'Mistake', 'Blunder'
  */
-export function classifyMove(evalLoss, isMate = false, lostMate = false) {
+export function classifyMove(evalLoss, isMate = false, lostMate = false, materialLoss = 0) {
   // If mate was lost, it's always a blunder
   if (lostMate) {
     return 'Blunder'
@@ -18,12 +19,27 @@ export function classifyMove(evalLoss, isMate = false, lostMate = false) {
 
   // Handle mate scores - if there's a mate but it wasn't lost
   if (isMate) {
-    // If evalLoss is very small with mate, it's the best move
+    // If evalLoss is very small with mate, check for Great/Best
     if (evalLoss <= 0.15) {
+      // Great move if it's the best (evalLoss == 0) and not a forced recapture
+      if (evalLoss === 0 && materialLoss <= 0) {
+        return 'Great'
+      }
       return 'Best'
     }
     // Any significant mate change is a blunder
     return 'Blunder'
+  }
+
+  // BRILLIANT LOGIC: Material sacrifice that doesn't hurt evaluation
+  // Player lost material (materialLoss > 0) but eval didn't drop significantly (evalLoss < 0.5)
+  if (materialLoss > 0 && evalLoss < 0.5) {
+    return 'Brilliant'
+  }
+
+  // GREAT LOGIC: Best move (evalLoss == 0) that isn't a forced recapture
+  if (evalLoss === 0 && materialLoss <= 0) {
+    return 'Great'
   }
 
   // Updated classification thresholds (in pawns) - using SIDE-AWARE evalLoss
@@ -126,7 +142,7 @@ export function calculateEvalLoss(evalBefore, evalAfter, color) {
 }
 
 /**
- * Generate explanation for a non-best move
+ * Generate explanation for a move
  * Material-based feedback takes priority over generic eval-based feedback
  * @param {Object} moveData - Move data with evaluation info
  * @param {string} bestMove - Best move suggested by engine
@@ -136,33 +152,53 @@ export function calculateEvalLoss(evalBefore, evalAfter, color) {
  * @returns {string} - Human-readable explanation
  */
 export function generateMoveExplanation(moveData, bestMove, evalLoss, classification, materialLoss = 0) {
+  // Handle positive classifications first
+  if (classification === 'Brilliant') {
+    return 'You sacrificed material to gain a positional advantage! A brilliant find.'
+  }
+  
+  if (classification === 'Great') {
+    return 'A critical move that maintains the advantage.'
+  }
+  
   if (classification === 'Best') {
     return 'This is the best move according to the engine.'
   }
 
   const explanations = []
 
-  // MATERIAL-BASED FEEDBACK (takes priority)
+  // MATERIAL-BASED FEEDBACK (takes priority for negative moves)
   if (materialLoss >= 5) {
-    explanations.push('A major blunder losing decisive material')
+    // More natural language based on evalLoss
+    if (evalLoss > 3.0) {
+      explanations.push('A decisive error that gives away the game')
+    } else {
+      explanations.push('A major blunder losing decisive material')
+    }
   } else if (materialLoss >= 3) {
-    explanations.push('This move loses material')
+    if (evalLoss > 2.5) {
+      explanations.push('A serious mistake that loses significant material')
+    } else {
+      explanations.push('This move loses material')
+    }
   } else if (materialLoss > 0) {
     explanations.push('This move loses material')
   }
 
-  // If no material loss, use eval-based feedback
+  // If no material loss, use eval-based feedback with more natural language
   if (materialLoss === 0) {
-    // Tactical opportunities
-    if (evalLoss > 2.5) {
-      explanations.push('This move misses a strong tactical opportunity')
+    // More dramatic language for severe errors
+    if (evalLoss > 3.0) {
+      explanations.push('A decisive error that gives away the game')
+    } else if (evalLoss > 2.5) {
+      explanations.push('A serious mistake that throws away the advantage')
     } else if (evalLoss > 1.2 && evalLoss <= 2.5) {
       explanations.push('This move misses a tactical opportunity')
     } else if (evalLoss > 0.5 && evalLoss <= 1.2) {
       explanations.push('This move misses a better continuation')
     }
 
-    // Positional issues
+    // Positional issues with context
     if (evalLoss > 1.0 && evalLoss <= 2.0) {
       explanations.push('This move weakens the position')
     }

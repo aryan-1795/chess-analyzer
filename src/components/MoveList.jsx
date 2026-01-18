@@ -14,7 +14,11 @@ function MoveList({ moves, currentMoveIndex, onMoveClick, getMoveClassification,
       return 'bg-blue-600 text-white font-semibold'
     }
     const classification = getMoveClassification(moveIndex)
-    if (classification === 'Blunder') {
+    if (classification === 'Brilliant') {
+      return 'bg-teal-900/50 hover:bg-teal-800/50 border-l-2 border-teal-500'
+    } else if (classification === 'Great') {
+      return 'bg-blue-900/50 hover:bg-blue-800/50 border-l-2 border-blue-500'
+    } else if (classification === 'Blunder') {
       return 'bg-red-900/50 hover:bg-red-800/50 border-l-2 border-red-500'
     } else if (classification === 'Mistake') {
       return 'bg-orange-900/50 hover:bg-orange-800/50 border-l-2 border-orange-500'
@@ -74,7 +78,11 @@ function MoveList({ moves, currentMoveIndex, onMoveClick, getMoveClassification,
       </div>
       <div className="mt-2 text-xs text-gray-400">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="w-3 h-3 bg-green-900/50 border-l-2 border-green-500"></span>
+          <span className="w-3 h-3 bg-teal-900/50 border-l-2 border-teal-500"></span>
+          <span>Brilliant</span>
+          <span className="w-3 h-3 bg-blue-900/50 border-l-2 border-blue-500 ml-2"></span>
+          <span>Great</span>
+          <span className="w-3 h-3 bg-green-900/50 border-l-2 border-green-500 ml-2"></span>
           <span>Best</span>
           <span className="w-3 h-3 bg-yellow-900/50 border-l-2 border-yellow-500 ml-2"></span>
           <span>Inaccuracy</span>

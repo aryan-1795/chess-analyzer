@@ -7,6 +7,7 @@ import GameInfo from './components/GameInfo'
 import MoveList from './components/MoveList'
 import EvaluationBar from './components/EvaluationBar'
 import ReviewSummary from './components/ReviewSummary'
+import AdvantageChart from './components/AdvantageChart'
 
 function App() {
   const [username, setUsername] = useState('')
@@ -18,6 +19,10 @@ function App() {
   const [evaluation, setEvaluation] = useState(0)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [evaluations, setEvaluations] = useState({}) // Store evaluations for each position
+  const [retryMode, setRetryMode] = useState(false)
+  const [retryMoveIndex, setRetryMoveIndex] = useState(null)
+  const [retryMessage, setRetryMessage] = useState(null)
+  const [retryGame, setRetryGame] = useState(null)
   const { analyzePosition, isReady } = useStockfish()
   const { reviewData, isAnalyzing: isReviewAnalyzing, analysisProgress, generateReview, clearReview } = useGameReview(moveHistory)
 
@@ -95,9 +100,35 @@ function App() {
     }
   }
 
-  const goToMove = (index) => {
+  const goToMove = (index, enableRetry = true) => {
     if (index < -1 || index >= moveHistory.length) return
     
+    // Check if this is a mistake/blunder and we have review data (only if enableRetry is true)
+    if (enableRetry && reviewData && reviewData.moves && reviewData.moves[index]) {
+      const classification = reviewData.moves[index].classification
+      const isRetryable = classification === 'Mistake' || classification === 'Blunder'
+      
+      if (isRetryable) {
+        // Enter retry mode
+        const chess = new Chess()
+        // Go to position before the mistake
+        if (index > 0) {
+          for (let i = 0; i < index; i++) {
+            chess.move(moveHistory[i].move)
+          }
+        }
+        setRetryGame(new Chess(chess.fen()))
+        setRetryMoveIndex(index)
+        setRetryMode(true)
+        setRetryMessage(null)
+        setGame(chess)
+        setCurrentMoveIndex(index - 1)
+        setEvaluation(0)
+        return
+      }
+    }
+    
+    // Normal navigation
     const chess = new Chess()
     if (index === -1) {
       chess.reset()
@@ -110,18 +141,122 @@ function App() {
     setGame(chess)
     setCurrentMoveIndex(index)
     setEvaluation(0)
+    setRetryMode(false)
+    setRetryMoveIndex(null)
+    setRetryMessage(null)
   }
 
   const prevMove = () => {
+    if (retryMode) {
+      exitRetryMode()
+    }
     goToMove(currentMoveIndex - 1)
   }
 
   const nextMove = () => {
+    if (retryMode) {
+      exitRetryMode()
+    }
     goToMove(currentMoveIndex + 1)
   }
 
   const resetGame = () => {
     goToMove(-1)
+    setRetryMode(false)
+    setRetryMoveIndex(null)
+    setRetryMessage(null)
+    setRetryGame(null)
+  }
+
+  // Handle piece drop/move in retry mode
+  const onPieceDrop = (sourceSquare, targetSquare) => {
+    if (!retryMode || !retryGame) return false
+
+    try {
+      const move = retryGame.move({
+        from: sourceSquare,
+        to: targetSquare,
+        promotion: 'q' // Always promote to queen for simplicity
+      })
+
+      if (move) {
+        // Check if this move matches the best move
+        const reviewMove = reviewData.moves[retryMoveIndex]
+        const bestMove = reviewMove?.bestMove
+
+        if (bestMove) {
+          // Convert bestMove (e.g., "e2e4" or "e2-e4") to compare with our move
+          // Handle both formats: "e2e4" and "e2-e4"
+          const normalizedBestMove = bestMove.replace('-', '').replace(' ', '')
+          const bestMoveFrom = normalizedBestMove.substring(0, 2)
+          const bestMoveTo = normalizedBestMove.substring(2, 4)
+          
+          // Also check if promotion is specified
+          const hasPromotion = normalizedBestMove.length > 4
+          const promotion = hasPromotion ? normalizedBestMove[4] : null
+          
+          if (sourceSquare === bestMoveFrom && targetSquare === bestMoveTo) {
+            // Check promotion if specified
+            if (hasPromotion && move.promotion) {
+              const promotionMap = { q: 'q', r: 'r', b: 'b', n: 'n' }
+              if (promotionMap[promotion.toLowerCase()] === move.promotion) {
+                setRetryMessage({ type: 'success', text: "Good job! You found the best move." })
+              } else {
+                setRetryMessage({ type: 'error', text: "Try again." })
+              }
+            } else {
+              setRetryMessage({ type: 'success', text: "Good job! You found the best move." })
+            }
+          } else {
+            setRetryMessage({ type: 'error', text: "Try again." })
+          }
+        } else {
+          // If no best move stored, just check if it's a valid move
+          setRetryMessage({ type: 'info', text: "Move made. Checking..." })
+        }
+
+        // Update the game state
+        const newGame = new Chess(retryGame.fen())
+        setRetryGame(newGame)
+        setGame(newGame)
+        return true
+      }
+    } catch (error) {
+      // Invalid move
+      setRetryMessage({ type: 'error', text: "Invalid move. Try again." })
+      return false
+    }
+
+    return false
+  }
+
+  // Reset retry attempt (go back to position before mistake)
+  const resetRetryAttempt = () => {
+    if (retryMoveIndex === null) return
+    
+    const chess = new Chess()
+    // Go to position before the mistake
+    if (retryMoveIndex > 0) {
+      for (let i = 0; i < retryMoveIndex; i++) {
+        chess.move(moveHistory[i].move)
+      }
+    }
+    setRetryGame(new Chess(chess.fen()))
+    setGame(chess)
+    setRetryMessage(null)
+  }
+
+  // Exit retry mode
+  const exitRetryMode = () => {
+    const savedIndex = retryMoveIndex
+    setRetryMode(false)
+    setRetryMoveIndex(null)
+    setRetryMessage(null)
+    setRetryGame(null)
+    // Return to the original mistake position
+    if (savedIndex !== null) {
+      goToMove(savedIndex, false) // Disable retry to avoid infinite loop
+    }
   }
 
   // Analyze current position
@@ -269,8 +404,8 @@ function App() {
             </div>
 
             {/* Center: Chessboard */}
-            <div className="flex-1 flex justify-center">
-              <div className="w-full max-w-2xl">
+            <div className="flex-1 flex flex-col items-center gap-4">
+              <div className="w-full max-w-2xl relative">
                 <div className="bg-gray-800 rounded-lg p-4">
                   <Chessboard
                     position={game.fen()}
@@ -279,9 +414,70 @@ function App() {
                       borderRadius: '4px',
                       boxShadow: '0 4px 6px rgba(0, 0, 0, 0.3)'
                     }}
+                    onPieceDrop={retryMode ? onPieceDrop : undefined}
+                    arePiecesDraggable={retryMode}
                   />
                 </div>
+                
+                {/* Retry Mode Overlay */}
+                {retryMode && (
+                  <div className="absolute top-4 right-4 bg-gray-900/95 border border-gray-700 rounded-lg p-4 shadow-lg z-10 max-w-xs">
+                    <div className="flex items-center justify-between mb-2">
+                      <h3 className="text-lg font-semibold text-white">Retry Mode</h3>
+                      <button
+                        onClick={exitRetryMode}
+                        className="text-gray-400 hover:text-white transition-colors"
+                        title="Exit Retry Mode"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    <p className="text-sm text-gray-300 mb-3">
+                      Try to find the best move for this position.
+                    </p>
+                    {reviewData?.moves[retryMoveIndex]?.bestMove && (
+                      <p className="text-xs text-gray-400 mb-3">
+                        Best move: <span className="text-white font-mono">{reviewData.moves[retryMoveIndex].bestMove}</span>
+                      </p>
+                    )}
+                    
+                    {/* Retry Message */}
+                    {retryMessage && (
+                      <div className={`p-2 rounded mb-3 ${
+                        retryMessage.type === 'success' 
+                          ? 'bg-green-900/50 text-green-300 border border-green-700'
+                          : retryMessage.type === 'error'
+                          ? 'bg-red-900/50 text-red-300 border border-red-700'
+                          : 'bg-blue-900/50 text-blue-300 border border-blue-700'
+                      }`}>
+                        <p className="text-sm font-semibold">{retryMessage.text}</p>
+                      </div>
+                    )}
+                    
+                    <div className="flex gap-2">
+                      <button
+                        onClick={resetRetryAttempt}
+                        className="flex-1 px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors text-sm"
+                      >
+                        Reset
+                      </button>
+                      <button
+                        onClick={exitRetryMode}
+                        className="flex-1 px-3 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg transition-colors text-sm"
+                      >
+                        Exit
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
+              
+              {/* Advantage Chart */}
+              {reviewData && reviewData.moves && reviewData.moves.length > 0 && (
+                <div className="w-full max-w-2xl">
+                  <AdvantageChart moves={reviewData.moves} />
+                </div>
+              )}
             </div>
 
             {/* Right: Game Info and Controls */}

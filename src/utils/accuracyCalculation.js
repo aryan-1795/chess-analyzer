@@ -67,6 +67,8 @@ export function countClassifications(moves, color) {
   const playerMoves = moves.filter(move => move.color === color)
   
   const counts = {
+    brilliant: 0,
+    great: 0,
     best: 0,
     excellent: 0,
     good: 0,

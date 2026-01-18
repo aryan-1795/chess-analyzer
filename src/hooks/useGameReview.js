@@ -95,16 +95,14 @@ export function useGameReview(moveHistory) {
           move.color
         )
 
-        // Classify the move
-        const classification = classifyMove(evalLoss, isMate, lostMate)
+        // Classify the move (pass materialLoss for Brilliant/Great detection)
+        const classification = classifyMove(evalLoss, isMate, lostMate, materialLoss)
 
         // Get best move (from position before)
         const bestMove = analysisBefore?.bestMove || null
 
         // Generate explanation with material information
-        const comment = classification === 'Best' 
-          ? 'This is the best move according to the engine.'
-          : generateMoveExplanation(move, bestMove, evalLoss, classification, materialLoss)
+        const comment = generateMoveExplanation(move, bestMove, evalLoss, classification, materialLoss)
 
         // Convert evaluation to pawns for display
         let evalBeforePawns = 0
