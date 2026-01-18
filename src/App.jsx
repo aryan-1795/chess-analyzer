@@ -8,6 +8,7 @@ import MoveList from './components/MoveList'
 import EvaluationBar from './components/EvaluationBar'
 import ReviewSummary from './components/ReviewSummary'
 import AdvantageChart from './components/AdvantageChart'
+import FeedbackPanel from './components/FeedbackPanel'
 
 function App() {
   const [username, setUsername] = useState('')
@@ -485,6 +486,13 @@ function App() {
               <div className="bg-gray-800 rounded-lg p-4 space-y-4">
                 {/* Game Metadata */}
                 <GameInfo game={selectedGame} />
+
+                {/* Feedback Panel */}
+                <FeedbackPanel 
+                  currentMove={moveHistory[currentMoveIndex]} 
+                  reviewData={reviewData} 
+                  isAnalyzing={isReviewAnalyzing} 
+                />
 
                 {/* Review Button */}
                 <div className="border-b border-gray-700 pb-4">
