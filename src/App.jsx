@@ -101,35 +101,10 @@ function App() {
     }
   }
 
-  const goToMove = (index, enableRetry = true) => {
+  const goToMove = (index) => {
     if (index < -1 || index >= moveHistory.length) return
     
-    // Check if this is a mistake/blunder and we have review data (only if enableRetry is true)
-    if (enableRetry && reviewData && reviewData.moves && reviewData.moves[index]) {
-      const classification = reviewData.moves[index].classification
-      const isRetryable = classification === 'Mistake' || classification === 'Blunder'
-      
-      if (isRetryable) {
-        // Enter retry mode
-        const chess = new Chess()
-        // Go to position before the mistake
-        if (index > 0) {
-          for (let i = 0; i < index; i++) {
-            chess.move(moveHistory[i].move)
-          }
-        }
-        setRetryGame(new Chess(chess.fen()))
-        setRetryMoveIndex(index)
-        setRetryMode(true)
-        setRetryMessage(null)
-        setGame(chess)
-        setCurrentMoveIndex(index - 1)
-        setEvaluation(0)
-        return
-      }
-    }
-    
-    // Normal navigation
+    // Normal navigation - strictly perform navigation without triggering retry mode
     const chess = new Chess()
     if (index === -1) {
       chess.reset()
@@ -256,7 +231,7 @@ function App() {
     setRetryGame(null)
     // Return to the original mistake position
     if (savedIndex !== null) {
-      goToMove(savedIndex, false) // Disable retry to avoid infinite loop
+      goToMove(savedIndex)
     }
   }
 

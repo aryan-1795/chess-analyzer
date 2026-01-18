@@ -42,6 +42,9 @@ export function useGameReview(moveHistory) {
       return
     }
 
+    // Clear stale cache to force fresh, correct analysis
+    analysisCacheRef.current.clear()
+
     setIsAnalyzing(true)
     setAnalysisProgress(0)
 
@@ -67,11 +70,32 @@ export function useGameReview(moveHistory) {
         }
         const fenAfter = chessAfter.fen()
 
-        // Analyze both positions
-        const [analysisBefore, analysisAfter] = await Promise.all([
-          analyzePositionCached(fenBefore, 15),
-          analyzePositionCached(fenAfter, 15)
-        ])
+        // 1. Analyze 'before' position sequentially to avoid race condition
+        // The single Stockfish worker can only handle one analysis at a time
+        const analysisBefore = await analyzePositionCached(fenBefore, 15)
+        
+        // 2. Check Game Over before analyzing 'after' to prevent hang
+        let analysisAfter
+        if (chessAfter.isGameOver()) {
+          // If game is over, do NOT call engine. Mock the result.
+          if (chessAfter.isCheckmate()) {
+            analysisAfter = { 
+              evaluation: { type: 'mate', value: 0, centipawns: 0 }, 
+              bestMove: null,
+              principalVariation: []
+            }
+          } else {
+            // Draw or stalemate
+            analysisAfter = { 
+              evaluation: { type: 'cp', value: 0, centipawns: 0 }, 
+              bestMove: null,
+              principalVariation: []
+            }
+          }
+        } else {
+          // Only call engine if game continues
+          analysisAfter = await analyzePositionCached(fenAfter, 15)
+        }
 
         // Ensure evaluation objects have the expected structure
         const evalBefore = analysisBefore?.evaluation || { type: 'cp', value: 0, centipawns: 0 }
